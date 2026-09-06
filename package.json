@@ -1,0 +1,28 @@
+{
+  "name": "anthropic-openai-connect",
+  "version": "1.0.0",
+  "description": "将 Claude Code 的 Anthropic Messages 协议转换为 OpenAI Chat Completions 协议并转发（适配阿里云百炼等 OpenAI 兼容端点，如 DeepSeek V4）",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": [
+    "claude-code",
+    "anthropic",
+    "openai",
+    "protocol",
+    "proxy",
+    "deepseek",
+    "dashscope",
+    "qwen"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2"
+  }
+}
