@@ -1,5 +1,5 @@
 // 边界测试2：文本 + 单工具混合流（验证 index 顺序 text<tool、stop 顺序正确）
-const { openaiSseToAnthropic } = require('./src/converter');
+const { openaiSseToAnthropic } = require('../src/converter');
 
 function makeStream(chunks) {
   return new ReadableStream({

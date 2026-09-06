@@ -1,5 +1,5 @@
 // 复现：多工具并行调用时转换层是否正确生成每个 tool_use 块
-const { openaiSseToAnthropic } = require('./src/converter');
+const { openaiSseToAnthropic } = require('../src/converter');
 
 // 构造一个 OpenAI SSE 流（模拟上游返回两个并行 tool_calls，无 .done）
 function makeStream(chunks) {
