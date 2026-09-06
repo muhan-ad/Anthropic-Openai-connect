@@ -171,14 +171,19 @@ function openAIToAnthropic(data, model, inputTokens) {
 /**
  * 将 OpenAI SSE 流转换为 Anthropic SSE 事件流（async generator）
  * 每个 yield 产出一段完整的事件文本："event: xxx\ndata: {...}\n\n"
+ *
+ * 注意：上游可能一次返回多个并行 tool_calls（index 0,1,2...），
+ * 每个 index 必须独立生成 content_block_start/stop，否则客户端
+ * 找不到对应块，报 "Content block not found"。
  */
 async function* openaiSseToAnthropic(stream, model) {
   const reader = stream.getReader();
   const decoder = new TextDecoder();
   let buffer = '';
-  let blockIndex = 0; // Anthropic content block 索引（text 与 tool_use 递增）
+  let blockIndex = 0;          // 全局 content block 索引（text 与 tool_use 共用）
   let textBlockActive = false;
-  let toolBlockActive = false;
+  let textBlockIndex = 0;      // text 块占用的 index
+  const toolBlocks = new Map(); // 上游 tool_calls 的 index -> { blockIndex, id, name }
   let finishReason = null;
   let outputTokens = 0;
 
@@ -225,31 +230,39 @@ async function* openaiSseToAnthropic(stream, model) {
       if (delta.content) {
         if (!textBlockActive) {
           textBlockActive = true;
+          textBlockIndex = blockIndex++; // 分配 index 并递增，确保与后续 tool 块不冲突
           yield sseEvent('content_block_start', {
             type: 'content_block_start',
-            index: blockIndex,
+            index: textBlockIndex,
             content_block: { type: 'text', text: '' },
           });
         }
         yield sseEvent('content_block_delta', {
           type: 'content_block_delta',
-          index: blockIndex,
+          index: textBlockIndex,
           delta: { type: 'text_delta', text: delta.content },
         });
       }
 
-      // 工具调用增量
+      // 工具调用增量：按上游 tool_calls 的 index 分块，支持并行多工具
       if (Array.isArray(delta.tool_calls)) {
         for (const tc of delta.tool_calls) {
-          if (!toolBlockActive) {
-            toolBlockActive = true;
+          const tIdx = typeof tc.index === 'number' ? tc.index : toolBlocks.size;
+          let tb = toolBlocks.get(tIdx);
+          if (!tb) {
+            tb = {
+              blockIndex: blockIndex++, // 新工具块分配新 index
+              id: tc.id || `toolu_${tIdx}`,
+              name: (tc.function && tc.function.name) || '',
+            };
+            toolBlocks.set(tIdx, tb);
             yield sseEvent('content_block_start', {
               type: 'content_block_start',
-              index: blockIndex,
+              index: tb.blockIndex,
               content_block: {
                 type: 'tool_use',
-                id: tc.id || `toolu_${blockIndex}`,
-                name: (tc.function && tc.function.name) || '',
+                id: tb.id,
+                name: tb.name,
                 input: {},
               },
             });
@@ -257,26 +270,24 @@ async function* openaiSseToAnthropic(stream, model) {
           if (tc.function && tc.function.arguments) {
             yield sseEvent('content_block_delta', {
               type: 'content_block_delta',
-              index: blockIndex,
+              index: tb.blockIndex,
               delta: { type: 'input_json_delta', partial_json: tc.function.arguments },
             });
           }
         }
       }
 
-      // 结束：按出现顺序关闭块（text 先于 tool 时先关 text）
+      // 结束：按块顺序关闭（先 text，再 tool；index 递增）
       if (choice.finish_reason) {
         finishReason = choice.finish_reason;
         if (textBlockActive) {
-          yield sseEvent('content_block_stop', { type: 'content_block_stop', index: blockIndex });
-          blockIndex += 1;
+          yield sseEvent('content_block_stop', { type: 'content_block_stop', index: textBlockIndex });
           textBlockActive = false;
         }
-        if (toolBlockActive) {
-          yield sseEvent('content_block_stop', { type: 'content_block_stop', index: blockIndex });
-          blockIndex += 1;
-          toolBlockActive = false;
+        for (const [, tb] of toolBlocks) {
+          yield sseEvent('content_block_stop', { type: 'content_block_stop', index: tb.blockIndex });
         }
+        toolBlocks.clear();
       }
 
       if (json.usage && json.usage.completion_tokens) {
@@ -287,15 +298,13 @@ async function* openaiSseToAnthropic(stream, model) {
 
   // 流意外结束时兜底关闭未关闭的块
   if (textBlockActive) {
-    yield sseEvent('content_block_stop', { type: 'content_block_stop', index: blockIndex });
-    blockIndex += 1;
+    yield sseEvent('content_block_stop', { type: 'content_block_stop', index: textBlockIndex });
     textBlockActive = false;
   }
-  if (toolBlockActive) {
-    yield sseEvent('content_block_stop', { type: 'content_block_stop', index: blockIndex });
-    blockIndex += 1;
-    toolBlockActive = false;
+  for (const [, tb] of toolBlocks) {
+    yield sseEvent('content_block_stop', { type: 'content_block_stop', index: tb.blockIndex });
   }
+  toolBlocks.clear();
 
   // message_delta + message_stop
   yield sseEvent('message_delta', {
