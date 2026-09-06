@@ -106,10 +106,10 @@ async function handleStream(req, res, oai, model) {
   res.end();
 }
 
-app.listen(config.port, () => {
+app.listen(config.port, config.host, () => {
   console.log('┌──────────────────────────────────────────────────────┐');
   console.log('│  Anthropic-Openai-connect 已启动                      │');
-  console.log('│  监听:    http://127.0.0.1:' + config.port + '                    │');
+  console.log('│  监听:    http://' + config.host + ':' + config.port + '                    │');
   console.log('│  上游:    ' + config.upstreamBaseUrl);
   console.log('│  默认模型: ' + config.defaultModel);
   console.log('│  Claude Code 配置: ANTHROPIC_BASE_URL=http://127.0.0.1:' + config.port);

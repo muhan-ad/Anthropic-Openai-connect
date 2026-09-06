@@ -16,6 +16,9 @@ function parseModelMap(raw) {
 }
 
 const config = {
+  // 监听地址：默认 127.0.0.1 仅本机可访问；除非配置了鉴权，否则不要改成 0.0.0.0
+  host: process.env.HOST || '127.0.0.1',
+
   // 本服务监听端口（Claude Code 的 ANTHROPIC_BASE_URL 指向 http://127.0.0.1:<port>）
   port: parseInt(process.env.PORT || '18880', 10),
 
